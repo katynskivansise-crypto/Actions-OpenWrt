@@ -3,36 +3,54 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: '设备名称，例如 r2s'
+        description: '多个设备用英文逗号隔开，留空自动扫描build下全部设备'
         required: false
         default: 'r2s'
 
 jobs:
   set_matrix:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
-      matrix: ${{ steps.gen_matrix.outputs.matrix }}
+      device_list: ${{ steps.gen_matrix.outputs.devices }}
+    name: "生成调度矩阵"
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-      - name: Generate matrix
+        uses: actions/checkout@main
+
+      - name: 生成设备矩阵
         id: gen_matrix
         run: |
-          chmod +x ./build/${{ github.event.inputs.target }}/set_matrix.sh
-          ./build/${{ github.event.inputs.target }}/set_matrix.sh
+          if [ -z "${{ github.event.inputs.target }}" ];then
+            # 扫描设备 + -c 紧凑单行、过滤空行
+            devices=$(find build/ -maxdepth 2 -type f -name "set_matrix.sh" | awk -F/ '{print $2}' | sort -u | jq -R . | jq -cs .)
+          else
+            # 逗号分割，去除空行，紧凑输出
+            devices=$(echo '${{ github.event.inputs.target }}' | tr ',' '\n' | grep -v '^$' | jq -R . | jq -cs .)
+          fi
+          echo "devices=$devices" >> $GITHUB_OUTPUT
+          echo "$devices"
 
-  build:
+  trigger_build:
     needs: set_matrix
+    runs-on: ubuntu-24.04
     strategy:
-      matrix:
-        src: ${{ fromJSON(needs.set_matrix.outputs.matrix) }}
       fail-fast: false
-    runs-on: ubuntu-latest
+      matrix:
+        device: ${{ fromJson(needs.set_matrix.outputs.device_list) }}
+    name: "触发编译: ${{ matrix.device }}"
     steps:
-      - name: Trigger Compile
-        uses: peter-evans/repository-dispatch@v3
-        with:
-          token: ${{ secrets.GH_TOKEN }}
-          event-type: build ${{ github.event.inputs.target }}
-          # 重点修复：删掉 branch 外面多余的单引号！原来的 '${{ matrix.src.branch }}' 是错误根源！
-          client-payload: '{"branch":"${{ matrix.src.branch }}","device":"${{ github.event.inputs.target }}","repo_addr":"${{ matrix.src.addr }}"}'
+      - name: Dispatch 触发 Build
+        run: |
+          branch=${GITHUB_REF##*/}
+          curl -X POST https://api.github.com/repos/${{ github.repository }}/dispatches \
+            -H "Accept: application/vnd.github.everest-preview+json" \
+            -H "Authorization: token ${{ secrets.gh_token }}" \
+            -d @- <<JSON
+          {
+            "event_type": "build",
+            "client_payload": {
+              "branch": "${branch}",
+              "device": "${{ matrix.device }}"
+            }
+          }
+          JSON
