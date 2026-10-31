@@ -31,4 +31,5 @@ if [ -n "${envOverride}" ];then
     done
 fi
 
-SET_ENV GOPROXY https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,https://goproxy.io,direct
+# GitHub runner 位于美国，官方 proxy.golang.org 直连最快最稳；goproxy.cn 502 时自动 fallback
+SET_ENV GOPROXY https://proxy.golang.org,https://goproxy.cn,https://mirrors.aliyun.com/goproxy/,direct
