@@ -3,49 +3,36 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'dev1,dev2'
+        description: '设备名称，例如 r2s'
         required: false
-        default: 'x86_64'
+        default: 'r2s'
 
 jobs:
   set_matrix:
     runs-on: ubuntu-latest
     outputs:
-      device: ${{ steps.set_matrix.outputs.matrix }}
-      #event_inputs_json: ${{ steps.set_matrix.outputs.matrix }}
-    name: "set matrix for: ${{ github.event.inputs.target }}"
+      matrix: ${{ steps.gen_matrix.outputs.matrix }}
     steps:
-    - name: Checkout
-      uses: actions/checkout@main
-    - name: prinf info
-      id: set_matrix
-      run: |
-        if [ -z "${{ github.event.inputs.target }}" ];then
-          matrix=$(find build/ -maxdepth 2 -type f -name set_matrix.sh | awk -F/ '{print $2}' | paste -s - -d ',')
-        else
-          matrix=${{ github.event.inputs.target }}
-        fi
-        echo '::set-output name=matrix::["'${matrix}'"]'
-        echo 'name=matrix: ["'${matrix}'"]'
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Generate matrix
+        id: gen_matrix
+        run: |
+          chmod +x ./build/${{ github.event.inputs.target }}/set_matrix.sh
+          ./build/${{ github.event.inputs.target }}/set_matrix.sh
+
   build:
-    runs-on: ubuntu-latest
     needs: set_matrix
     strategy:
-      fail-fast: false
       matrix:
-        device: ${{ fromJson(needs.set_matrix.outputs.device) }}
+        src: ${{ fromJSON(needs.set_matrix.outputs.matrix) }}
+      fail-fast: false
+    runs-on: ubuntu-latest
     steps:
-        - name: Trigger Compile
-          run: |
-            branch=${GITHUB_REF##*/};
-            curl \
-            -X POST https://api.github.com/repos/${{ github.repository }}/dispatches \
-            -H "Accept: application/vnd.github.everest-preview+json" \
-            -H "Authorization: token ${{ secrets.gh_token }}" \
-            -d '{
-              "event_type":"build ${{ matrix.device }}",
-              "client_payload":{
-                  "branch":"'$branch'",
-                  "device":"${{ matrix.device }}"
-              }
-            }'
+      - name: Trigger Compile
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          event-type: build ${{ github.event.inputs.target }}
+          # 重点修复：删掉 branch 外面多余的单引号！原来的 '${{ matrix.src.branch }}' 是错误根源！
+          client-payload: '{"branch":"${{ matrix.src.branch }}","device":"${{ github.event.inputs.target }}","repo_addr":"${{ matrix.src.addr }}"}'
