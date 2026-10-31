@@ -9,17 +9,40 @@ if [ -f /bin/zsh ];then
   sed -i '/^root:/s#/bin/ash#/bin/zsh#' /etc/passwd
 fi
 
-if ls -l /*_*_*.ipk 1>/dev/null;then
-    opkg install /*_*_*.ipk
-    rm -f /*_*_*.ipk
-fi
+# 软件源保持各自官方源默认，不做镜像替换
+if command -v apk >/dev/null 2>&1; then
+    # ---------- apk 包管理器（ImmortalWrt/OpenWrt 25.12+） ----------
+    DIST_APK=/etc/apk/repositories.d/distfeeds.list
 
-# slim 固件本地 opkg 配置
-if ls -l /local_feed/*.ipk 1>/dev/null;then
-    sed -ri 's@^[^#]@#&@' /etc/opkg/distfeeds.conf
-    grep -E '/local_feed' /etc/opkg/customfeeds.conf || echo 'src/gz local file:///local_feed' >> /etc/opkg/customfeeds.conf
-    # 取消签名，暂时解决不了
-    sed -ri '/check_signature/s@^[^#]@#&@' /etc/opkg.conf
+    # 安装预置在根目录的 apk（apk 用连字符命名 name-version-r1.apk）
+    if ls -l /*.apk >/dev/null 2>&1; then
+        apk add --allow-untrusted /*.apk
+        rm -f /*.apk
+    fi
+
+    # slim 固件：配置本地 apk 源，并注释官方源做离线使用
+    if [ -f /local_feed/packages.adb ]; then
+        [ -f "$DIST_APK" ] && sed -ri 's@^[^#]@#&@' "$DIST_APK"
+        CUSTOM_APK=/etc/apk/repositories.d/customfeeds.list
+        grep -q '/local_feed' "$CUSTOM_APK" 2>/dev/null || echo '/local_feed/packages.adb' >> "$CUSTOM_APK"
+    fi
+else
+    # ---------- opkg 包管理器（旧版 / lede） ----------
+    DIST_OPKG=/etc/opkg/distfeeds.conf
+
+    # 安装预置在根目录的 ipk（ipk 用下划线命名 name_ver_arch.ipk）
+    if ls -l /*_*_*.ipk >/dev/null 2>&1; then
+        opkg install /*_*_*.ipk
+        rm -f /*_*_*.ipk
+    fi
+
+    # slim 固件：配置本地 opkg 源，并注释官方源
+    if ls -l /local_feed/*.ipk >/dev/null 2>&1; then
+        sed -ri 's@^[^#]@#&@' "$DIST_OPKG"
+        grep -E '/local_feed' /etc/opkg/customfeeds.conf || echo 'src/gz local file:///local_feed' >> /etc/opkg/customfeeds.conf
+        # 本地源无法签名，关闭签名检查
+        sed -ri '/check_signature/s@^[^#]@#&@' /etc/opkg.conf
+    fi
 fi
 
 

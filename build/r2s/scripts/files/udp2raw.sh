@@ -1,23 +1,7 @@
-if [ 1 -eq 1 ];then
-    udp_raw_file=udp2raw_arm
-    svn export https://github.com/sensec/luci-app-udp2raw/trunk package/custom/luci-app-udp2raw
-    VERSION=latest url=$( curl -sL https://api.github.com/repos/wangyu-/udp2raw-tunnel/releases/${VERSION} | \
-        jq -r '.assets[]| select(.name=="udp2raw_binaries.tar.gz") | .browser_download_url' )
-    if [ -n "$url" ];then
-      wget $url -O - | \
-        tar -zxvf - -C . ${udp_raw_file}
-      upx -9 ${udp_raw_file}
-      mkdir -p package/custom/luci-app-udp2raw/files/root/usr/bin/
-      sed -ri 's#\s隧道##' package/custom/luci-app-udp2raw/files/luci/i18n/udp2raw.zh-cn.po
-      mv ${udp_raw_file} package/custom/luci-app-udp2raw/files/root/usr/bin/udp2raw
-      if ! grep -qw 'files/root/usr/bin/udp2raw' package/custom/luci-app-udp2raw/Makefile;then
-          sed -i "/\/root\/etc\/init.d\/udp2raw/r "<(
-cat <<'EOF' | sed -r 's#^\s+#\t#'
-    $(INSTALL_DIR) $(1)/usr/bin
-    $(INSTALL_DATA) ./files/root/usr/bin/udp2raw $(1)/usr/bin/udp2raw
-    chmod 0755 $(1)/usr/bin/udp2raw
-EOF
-)   package/custom/luci-app-udp2raw/Makefile
-      fi
-    fi
-fi
+# 原 sensec/luci-app-udp2raw 为 2018 年老包，已不再使用：
+# 1) GitHub 已移除 Subversion 桥接，svn export .../trunk 无法访问；
+# 2) 老包 Makefile 不兼容 apk（opkg→apk）及新源码。
+#
+# udp2raw 核心程序由官方 feeds(net/udp2raw) 提供，
+# 在配置中开启 CONFIG_PACKAGE_udp2raw 即可（已在 config.buildinfo 中改为核心包）。
+true

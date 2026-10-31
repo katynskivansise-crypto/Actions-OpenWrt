@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Copyright (c) 2019-2020 P3TERX <https://p3terx.com>
+# Copyright (c) 2019-2026 P3TERX <https://p3terx.com>
 #
 # This is free software, licensed under the MIT License.
 # See /LICENSE for more information.
@@ -81,6 +81,14 @@ if [ "$repo_name" = 'lede' ];then
     # sed -i 's/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=skip/' package/kernel/rtl8821cu/Makefile
     # fi
 
+    # 修复 lede 上游 953 shortcut-fe 补丁与 6.18.58 内核不匹配的问题
+    # （Hunk #1 上下文在 6.18.58 新增了 tc_depth 字段，原补丁应用失败导致 kernel-headers 中断）
+    # 修复版补丁放在本仓库 build/<target>/patches/ 下，编译时覆盖 lede 源码内的原补丁
+    if [ -f "${GITHUB_WORKSPACE}/build/${build_target}/patches/953-net-patch-linux-kernel-to-support-shortcut-fe.patch" ];then
+        cp -f ${GITHUB_WORKSPACE}/build/${build_target}/patches/953-net-patch-linux-kernel-to-support-shortcut-fe.patch \
+              target/linux/generic/hack-6.18/953-net-patch-linux-kernel-to-support-shortcut-fe.patch
+        echo "==> 已用修复版覆盖 953 shortcut-fe 补丁（适配内核 $(grep -Po '^KERNEL_PATCHVER=\K\S+' target/linux/rockchip/Makefile)）"
+    fi
 fi
 
 # merge_package "-b 18.06 https://github.com/jerrykuku/luci-theme-argon"
