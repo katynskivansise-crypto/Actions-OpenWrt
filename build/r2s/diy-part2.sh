@@ -3,7 +3,8 @@
 # MIT License
 # File name: diy-part2.sh
 # Desc: Post‑feeds ImmortalWrt‑25.12 | NanoPi‑R2S
-# 保留kenzok8 feeds源，自动清理损坏不兼容软件
+# 保留kenzok8 feeds源，自动清理损坏不兼容软件包
+# luci‑theme‑argon=y 内置固件作为默认web主题
 
 [ -f "$GITHUB_ENV" ] && source "$GITHUB_ENV"
 kernel_ver=$(grep -Po '^KERNEL_PATCHVER=\K\S+' target/linux/rockchip/Makefile)
@@ -60,11 +61,12 @@ if [ "$repo_name" = 'lede' ] || [ "$repo_name" = 'immortalwrt' ];then
 fi
 
 # 拉取第三方LuCI插件源码
-merge_package "https://github.com/vernesong/OpenClash"
+# ⚠️vernesong/OpenClash仓库无main分支，必须指定master
+merge_package "https://github.com/vernesong/OpenClash" "" "master"
 merge_package "https://github.com/lisaac/luci-app-dockerman"
 
 # R2S：拉取OLED控制面板插件
-# I2C内核驱动已内置固件；i2c‑tools、libi2c编译apk，刷机后手动安装使用
+# I2C内核驱动已内置固件；i2c‑tools、libi2c编译为apk，刷机后手动安装使用
 if [ "$build_target" = r2s ];then
     merge_package https://github.com/NateLol/luci-app-oled
     # 修复中文翻译目录名称 zh_Hans → zh‑cn
