@@ -18,7 +18,7 @@ if [ "$build_target" = r2s ];then
     fi
 fi
 
-### 自定义包合并函数
+### 自定义包合并函数【修复git clone参数：-b指定分支】
 # 参数1：仓库地址；参数2：额外需要删除的包名(可为空)；参数3：git分支(默认main)
 # set‑e捕获克隆异常，执行结束恢复set +e
 merge_package(){
@@ -35,7 +35,7 @@ merge_package(){
     if [[ $1 == *'/trunk/'* || $1 == *'/branches/'* ]]; then
         svn export "$1"
     else
-        git clone --depth=1 --single-branch "${branch}" "$pn"
+        git clone --depth=1 -b "${branch}" --single-branch "${pn}"
         rm -rf "${pn}/.git"
     fi
     mv "${pn}" package/custom/
@@ -61,12 +61,11 @@ if [ "$repo_name" = 'lede' ] || [ "$repo_name" = 'immortalwrt' ];then
 fi
 
 # 拉取第三方LuCI插件源码
-# ⚠️vernesong/OpenClash仓库无main分支，必须指定master
 merge_package "https://github.com/vernesong/OpenClash" "" "master"
 merge_package "https://github.com/lisaac/luci-app-dockerman"
 
 # R2S：拉取OLED控制面板插件
-# I2C内核驱动已内置固件；i2c‑tools、libi2c编译为apk，刷机后手动安装使用
+# I2C内核驱动已内置固件；i2c‑tools、libi2c编译apk，刷机后手动安装使用
 if [ "$build_target" = r2s ];then
     merge_package https://github.com/NateLol/luci-app-oled
     # 修复中文翻译目录名称 zh_Hans → zh‑cn
