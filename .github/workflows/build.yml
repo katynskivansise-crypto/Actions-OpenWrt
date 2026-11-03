@@ -6,7 +6,8 @@
 #
 # https://github.com/P3TERX/Actions-OpenWrt
 # Description: Build OpenWrt using GitHub Actions
-#
+# 修复：organize路径错误，增加编译产物状态判断，失败阻断后续无效上传
+
 name: Build OpenWrt
 
 on:
@@ -20,7 +21,7 @@ on:
       target:
         description: 'build/${target} to build'
         required: false
-        default: 'r2s' #'x86_64'
+        default: 'r2s'
       envOverride:
         description: 'key=value,key2=value2'
         required: false
@@ -53,8 +54,6 @@ env:
   UPLOAD_WETRANSFER: false
   UPLOAD_RELEASE: false
   TZ: Asia/Shanghai
-  # DOCKER_HUB_PASS: ${{ secrets.DOCKER_PASS }}
-  # ALIUNCS_PASS: ${{ secrets.DOCKER_PASS }}
   NOT_PUSH: ${{ secrets.NOT_PUSH }}
   envOverride: ${{ github.event.inputs.envOverride }}
 
@@ -103,7 +102,7 @@ jobs:
       matrix:
         target:
           - ${{ fromJson(needs.set_matrix.outputs.inputs_json).target }}
-        repo: ${{ fromJson(needs.set_matrix.outputs.build_repo) }}
+        repo: ${{ fromJson(needs.set_matrix.outputs.inputs_json).build_repo }}
 
     steps:
       - name: Checkout
@@ -272,12 +271,12 @@ jobs:
           set -x
           awk '$1!~"#"{print $2}' feeds.conf.default | while read dir;do
               if [ -d feeds/${dir}/.git ];then
-                  pushd feeds/${dir}
-                  [ -n "$(git diff --name-only)" ] && git reset --hard HEAD
-                  git clean -df
-                  git restore .
-                  git pull --rebase
-                  popd
+                pushd feeds/${dir}
+                [ -n "$(git diff --name-only)" ] && git reset --hard HEAD
+                git clean -df
+                git restore .
+                git pull --rebase
+                popd
               fi
           done
           ./scripts/feeds update -a
@@ -411,12 +410,13 @@ jobs:
                 make checksum
               fi
             else
-                time make package/index || true
+              time make package/index || true
             fi
             set +x
           else
             make -j$[`nproc`+1] || make -j1 || make -j1 V=s
           fi
+          COMPILE_RET=$?
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
           echo "======================="
           echo "Space usage:"
@@ -428,6 +428,11 @@ jobs:
           du -h --max-depth=1 ./bin
 
           echo "DEVICE_NAME=${{ matrix.target }}" >> $GITHUB_ENV
+          if [ $COMPILE_RET -eq 0 ];then
+            echo "status=success" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+          fi
 
       - name: retry with V=s in failed packages
         if: (!cancelled())
@@ -439,8 +444,8 @@ jobs:
               grep -Po 'ERROR:\s+\K\S+' /tmp/build.log || true
               echo '-------------分割线-----------'
               for pkg in `grep -Po 'ERROR:\s+\K\S+' /tmp/build.log`;do
-                  echo "开始单独尝试 make $pkg/compile V=s 编译查看详细信息"
-                  make $pkg/compile V=s || true
+                echo "开始单独尝试 make $pkg/compile V=s 编译查看详细信息"
+                make $pkg/compile V=s || true
               done
             fi
           fi
@@ -477,9 +482,9 @@ jobs:
         id: organize
         if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
         run: |
-          sha256_path=$(find openwrt/bin/targets/ -type f -name sha256sums )
+          sha256_path=$(find ./bin/targets/ -type f -name sha256sums 2>/dev/null)
           if [ -n "$sha256_path" ];then
-            cd $(dirname $sha256_path)
+            cd $(dirname "$sha256_path")
             pwd
             rm -rf packages
             echo "FIRMWARE=$PWD" >> $GITHUB_ENV
@@ -488,7 +493,6 @@ jobs:
               if ! grep -Pq '^\s*[^#]+?\},\{' ${GITHUB_WORKSPACE}/set_matrix.sh;then
                 echo "status=success" >> $GITHUB_OUTPUT
               fi
-
               if ls *-imagebuilder-* &>/dev/null;then
                 echo "uploadImageBuilder=true" >> $GITHUB_OUTPUT
                 if [ "${CACHE}" = true ] && [ "$USED_CONFIG_IB" == true ];then
@@ -498,7 +502,13 @@ jobs:
                 echo "no_imageBuilder=true" >> $GITHUB_ENV
               fi
               echo "build_target=${{ matrix.target }}" >> $GITHUB_OUTPUT
+            else
+              echo "❌ 未找到固件产物，编译实际失败"
+              echo "status=failure" >> $GITHUB_OUTPUT
             fi
+          else
+            echo "❌ sha256sums 文件不存在，固件产物缺失"
+            echo "status=failure" >> $GITHUB_OUTPUT
           fi
 
       - name: Do something after Compile
@@ -570,7 +580,7 @@ jobs:
         continue-on-error: true
         run: |
           sync
-          sha256_path=$(find openwrt/bin/targets/ -type f -name sha256sums )
+          sha256_path=$(find openwrt/bin/targets/ -type f -name sha256sums 2>/dev/null)
           if [ -n "$sha256_path" ];then
             pushd $(dirname $sha256_path)
             if ls *-imagebuilder-* &>/dev/null;then
@@ -581,12 +591,12 @@ jobs:
 
           nohup sh -c '
           echo "Listing 100 largest packages"
-          sudo dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 100
+          sudo dpkg-query -Wf '\''${Installed-Size}\t${Package}\n'\'' | sort -n | tail -n 100
           df -h
           echo "Removing large packages"
-          sudo apt-get remove -y '^ghc-8.*' || true
-          sudo apt-get remove -y '^dotnet-.*' || true
-          sudo apt-get remove -y '^llvm-.*' || true
+          sudo apt-get remove -y '\''^ghc-8.*'\'' || true
+          sudo apt-get remove -y '\''^dotnet-.*'\'' || true
+          sudo apt-get remove -y '\''^llvm-.*'\'' || true
           sudo apt-get remove -y 'php.*' || true
           sudo apt-get remove -y azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel || true
           sudo apt-get autoremove -y || true
@@ -648,7 +658,7 @@ jobs:
               else
                 curl -X POST https://api.github.com/repos/${{ github.repository }}/dispatches \
                   -H "Accept: application/vnd.github.everest-preview+json" \
-                  -H "Authorization: token ${{ secrets.gh_token }}" -d \
+                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -d \
                     '{
                        "event_type":"${{ github.event.action }}",
                        "client_payload": ${{ toJSON(github.event.client_payload) }}
@@ -661,7 +671,6 @@ jobs:
             fi
           fi
 
-      # ====================== 新增：清理Packages同缓存包旧版本，只保留最新1个 ======================
       - name: Clean old cache package versions (keep latest 1)
         if: success() && env.cache_name != '' && env.UseCache == 'true'
         uses: actions/delete-package-versions@v5
@@ -790,7 +799,7 @@ jobs:
         with:
           login-server: https://registry.aliyuncs.com
           username: "${{ github.repository_owner }}@qq.com"
-          password: "${{ secrets.ALIUNCS_PASS }}"
+          password: "${{ secrets.DOCKER_HUB_PASS }}"
 
       - name: Download imagebuilder (Artifact)
         uses: actions/download-artifact@v4
