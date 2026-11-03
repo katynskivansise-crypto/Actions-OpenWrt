@@ -1,4 +1,3 @@
-#
 # Copyright (c) 2019-2026 P3TERX <https://p3terx.com>
 #
 # This is free software, licensed under the MIT License.
@@ -6,7 +5,6 @@
 #
 # https://github.com/P3TERX/Actions-OpenWrt
 # Description: Build OpenWrt using GitHub Actions
-# 修复：organize路径错误，增加编译产物状态判断，失败阻断后续无效上传
 
 name: Build OpenWrt
 
@@ -21,7 +19,7 @@ on:
       target:
         description: 'build/${target} to build'
         required: false
-        default: 'r2s'
+        default: 'r2s' #'x86_64'
       envOverride:
         description: 'key=value,key2=value2'
         required: false
@@ -54,6 +52,8 @@ env:
   UPLOAD_WETRANSFER: false
   UPLOAD_RELEASE: false
   TZ: Asia/Shanghai
+  # DOCKER_HUB_PASS: ${{ secrets.DOCKER_PASS }}
+  # ALIUNCS_PASS: ${{ secrets.DOCKER_PASS }}
   NOT_PUSH: ${{ secrets.NOT_PUSH }}
   envOverride: ${{ github.event.inputs.envOverride }}
 
@@ -102,7 +102,7 @@ jobs:
       matrix:
         target:
           - ${{ fromJson(needs.set_matrix.outputs.inputs_json).target }}
-        repo: ${{ fromJson(needs.set_matrix.outputs.inputs_json).build_repo }}
+        repo: ${{ fromJson(needs.set_matrix.outputs.build_repo) }}
 
     steps:
       - name: Checkout
@@ -416,7 +416,6 @@ jobs:
           else
             make -j$[`nproc`+1] || make -j1 || make -j1 V=s
           fi
-          COMPILE_RET=$?
           echo "FILE_DATE=_$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
           echo "======================="
           echo "Space usage:"
@@ -428,11 +427,6 @@ jobs:
           du -h --max-depth=1 ./bin
 
           echo "DEVICE_NAME=${{ matrix.target }}" >> $GITHUB_ENV
-          if [ $COMPILE_RET -eq 0 ];then
-            echo "status=success" >> $GITHUB_OUTPUT
-          else
-            echo "status=failure" >> $GITHUB_OUTPUT
-          fi
 
       - name: retry with V=s in failed packages
         if: (!cancelled())
@@ -484,7 +478,7 @@ jobs:
         run: |
           sha256_path=$(find ./bin/targets/ -type f -name sha256sums 2>/dev/null)
           if [ -n "$sha256_path" ];then
-            cd $(dirname "$sha256_path")
+            cd $(dirname $sha256_path)
             pwd
             rm -rf packages
             echo "FIRMWARE=$PWD" >> $GITHUB_ENV
@@ -493,6 +487,7 @@ jobs:
               if ! grep -Pq '^\s*[^#]+?\},\{' ${GITHUB_WORKSPACE}/set_matrix.sh;then
                 echo "status=success" >> $GITHUB_OUTPUT
               fi
+
               if ls *-imagebuilder-* &>/dev/null;then
                 echo "uploadImageBuilder=true" >> $GITHUB_OUTPUT
                 if [ "${CACHE}" = true ] && [ "$USED_CONFIG_IB" == true ];then
@@ -502,13 +497,7 @@ jobs:
                 echo "no_imageBuilder=true" >> $GITHUB_ENV
               fi
               echo "build_target=${{ matrix.target }}" >> $GITHUB_OUTPUT
-            else
-              echo "❌ 未找到固件产物，编译实际失败"
-              echo "status=failure" >> $GITHUB_OUTPUT
             fi
-          else
-            echo "❌ sha256sums 文件不存在，固件产物缺失"
-            echo "status=failure" >> $GITHUB_OUTPUT
           fi
 
       - name: Do something after Compile
@@ -580,7 +569,7 @@ jobs:
         continue-on-error: true
         run: |
           sync
-          sha256_path=$(find openwrt/bin/targets/ -type f -name sha256sums 2>/dev/null)
+          sha256_path=$(find openwrt/bin/targets/ -type f -name sha256sums )
           if [ -n "$sha256_path" ];then
             pushd $(dirname $sha256_path)
             if ls *-imagebuilder-* &>/dev/null;then
@@ -653,7 +642,7 @@ jobs:
               if [ "${{ github.event_name }}" == workflow_dispatch ];then
                 echo '${{ toJson(github.event.inputs) }}' > /tmp/test
                 workFlow=$( echo  ${{ github.event.workflow }} | sed -r 's#.github/workflows/##')
-                cat /tmp/test | gh workflow run $workFlow -r ${GITHUB_REF##*/} --json
+                gh workflow run $workFlow -r ${GITHUB_REF##*/} --json
                 rm -f /tmp/test
               else
                 curl -X POST https://api.github.com/repos/${{ github.repository }}/dispatches \
@@ -671,6 +660,7 @@ jobs:
             fi
           fi
 
+      # ====================== 新增：清理Packages同缓存包旧版本，只保留最新1个 ======================
       - name: Clean old cache package versions (keep latest 1)
         if: success() && env.cache_name != '' && env.UseCache == 'true'
         uses: actions/delete-package-versions@v5
