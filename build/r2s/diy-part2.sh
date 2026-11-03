@@ -1,116 +1,131 @@
 #!/bin/bash
-# Copyright (c) 2019‑2026 P3TERX <https://p3terx.com>
-# MIT License
+# Copyright (c) 2019-2026 P3TERX <https://p3terx.com>
+# This is free software, licensed under the MIT License.
+# See /LICENSE for more information.
+# https://github.com/P3TERX/Actions-OpenWrt
 # File name: diy-part2.sh
-# Description: Post-feeds 执行脚本 ImmortalWrt‑25.12 / Lede
-# Target: NanoPi‑R2S
-# 功能：DMC调频、自定义包拉取、argon主题、luci‑app‑oled、风扇温控、预置files文件
+# Description: OpenWrt DIY script part 2 (After Update feeds)
 
-[ -f "$GITHUB_ENV" ] && source "$GITHUB_ENV"
-
+# Modify default IP
+#sed -i 's/192.168.1.1/192.168.50.5/g' package/base-files/files/bin/config_generate
+[ -f "$GITHUB_ENV" ] && source $GITHUB_ENV
 kernel_ver=$(grep -Po '^KERNEL_PATCHVER=\K\S+' target/linux/rockchip/Makefile)
-
-# R2S DMC调频补丁，优化千兆转发性能
 if [ "$build_target" = r2s ];then
-    patch_file="./target/linux/rockchip/patches-${kernel_ver}/nanopi-r2s-dmc-.patch"
-    if [ -f "$patch_file" ];then
-        sed -ri '/auto-freq-en/s#0#1#' "$patch_file"
-        echo "[INFO] DMC调频已开启"
+    # dmc 调频，开了让跑满千兆
+    if ls -l ./target/linux/rockchip/patches-${kernel_ver}/nanopi-r2s-dmc-.patch 2>/dev/null;then
+        sed -ri '/auto-freq-en/s#0#1#' ./target/linux/rockchip/patches-${kernel_ver}/nanopi-r2s-dmc-.patch
     fi
 fi
 
-### 自定义包合并函数
-# set‑e 捕获git/svn导出失败，避免后续mv错误；结束恢复set +e
+# 通用合并包函数
 merge_package(){
-    set -e
-    local pn="$1"
+    local pn=$1
+    # 删掉/和它左边，只保留名字
     pn=${pn##/}
-    find package/ -follow -name "$pn" -not -path "package/custom/*" | xargs -rt rm -rf
+    find package/ -follow -name $pn -not -path "package/custom/" | xargs -rt rm -rf
     if [ ! -z "$2" ]; then
-        find package/ -follow -name "$2" -not -path "package/custom/*" | xargs -rt rm -rf
+        find package/ -follow -name $2 -not -path "package/custom/*" | xargs -rt rm -rf
     fi
 
     if [[ $1 == *'/trunk/'* || $1 == *'/branches/'* ]]; then
-        svn export "$1"
+        svn export $1
     else
-        git clone --depth=1 --single-branch ${3:-"main"} "$1"
-        rm -rf "${pn}/.git"
+        git clone --depth=1 --single-branch $3 $1
+        rm -rf $pn/.git
     fi
-    mv "${pn}" package/custom/
-    set +e
+    mv $pn package/custom/
 }
 
-rm -rf package/custom
-mkdir -p package/custom
+rm -rf package/custom; mkdir package/custom
 
-# Lede / ImmortalWrt 公共处理
+# ==============================
+# 分支判断：lede / immortalwrt 都执行下面驱动屏蔽（你的需求：immortalwrt 和 lede 一样删掉 ath6kl/rsi91x）
+# ==============================
 if [ "$repo_name" = 'lede' ] || [ "$repo_name" = 'immortalwrt' ];then
-    # 删除无关设备编译定义，减少编译扫描项
+    # https://github.com/coolsnowwolf/lede/issues/9483
+    # https://github.com/coolsnowwolf/lede/pull/9457/files#diff-38a2e413df332b2dd0c3651ef57bd9544c2224faa0bf9fb7712daf769e12fa67L449-L470
+    # https://github.com/coolsnowwolf/lede/commit/ee7d9cff629778e16d1a34abc04ea3d6524d56bb#diff-38a2e413df332b2dd0c3651ef57bd9544c2224faa0bf9fb7712daf769e12fa67R470
+    if [ "$kernel_ver" = '5.10' ] || [ "$kernel_ver" = '5.4' ];then
+        sed -ri '/=CONFIG_CRYPTO_LIB_BLAKE2S/{n;s/HIDDEN:=1/DEPENDS:=@(LINUX_5_4||LINUX_5_10)/;}' package/kernel/linux/modules/crypto.mk
+        for SED_NUM in $( grep -En 'blake2s(|-generic|-arm).ko' package/kernel/linux/modules/crypto.mk | awk -F: '$0~":"{print $1}');do
+            sed -ri "${SED_NUM}s#@lt5.9##" package/kernel/linux/modules/crypto.mk
+        done
+    fi
+
+    # [https://github.com/coolsnowwolf/lede/issues/9803](https://github.com/coolsnowwolf/lede/issues/9803)
+    # lede 暂时删掉 ath6kl ，原因是 [https://github.com/coolsnowwolf/lede/commit/66d19a4e3673b30594b5de3b8d226160a0032af5](https://github.com/coolsnowwolf/lede/commit/66d19a4e3673b30594b5de3b8d226160a0032af5) 升级了 mac80211导致
+    # [https://github.com/coolsnowwolf/lede/commit/f66ea169c0ec229f46c32d886f7a0411f909ad2a](https://github.com/coolsnowwolf/lede/commit/f66ea169c0ec229f46c32d886f7a0411f909ad2a)
+    # 2022/08/05 可能要暂时屏蔽掉 5.15 5.19 内核
+    # if [ "$build_target" = r2s ] && echo "$kernel_ver" | grep -Pq '5.1[89]';then
+    #     sed -ri '/^KERNEL_PATCHVER=/s#'"${kernel_ver}"'#5.4#' target/linux/rockchip/Makefile
+    # fi
+    kernel_ver=$(grep -Po '^KERNEL_PATCHVER=\K\S+' target/linux/rockchip/Makefile)
+    if echo "$kernel_ver" | grep -Pq '5.1[589]';then
+        sed -ri '/kmod-(ath6k|carl9170|libertas-usb|rsi91x)/d' .config
+    fi
+
+    # [https://github.com/coolsnowwolf/lede/issues/9922](https://github.com/coolsnowwolf/lede/issues/9922)
     sed -ri '/^\s*TARGET_DEVICES\s.+?(fastrhino_r66s|firefly_station-p2|friendlyelec_nanopi-r5s)/d' target/linux/rockchip/image/armv8.mk
 
-    # 外部shortcut‑fe补丁覆盖
-    patch_src="${GITHUB_WORKSPACE}/build/${build_target}/patches/953-net-patch-linux-kernel-to-support-shortcut-fe.patch"
-    patch_dst="target/linux/generic/hack-6.18/953-net-patch-linux-kernel-to-support-shortcut-fe.patch"
-    if [ -n "${GITHUB_WORKSPACE}" ] && [ -f "$patch_src" ];then
-        cp -f "$patch_src" "$patch_dst"
-        echo "[INFO] shortcut‑fe补丁已覆盖,内核 ${kernel_ver}"
+    # #use latest driver of rtl8821CU
+    # if [ -f package/kernel/rtl8821cu/Makefile ];then
+    # sed -i 's/PKG_SOURCE_VERSION:=.*/PKG_SOURCE_VERSION:=master/' package/kernel/rtl8821cu/Makefile
+    # sed -i 's/PKG_MIRROR_HASH:=.*/PKG_MIRROR_HASH:=skip/' package/kernel/rtl8821cu/Makefile
+    # fi
+
+    # 修复 lede 上游 953 shortcut-fe 补丁与 6.18.58 内核不匹配的问题
+    # （Hunk #1 上下文在 6.18.58 新增了 tc_depth 字段，原补丁应用失败导致 kernel-headers 中断）
+    # 修复版补丁放在本仓库 build/<target>/patches/ 下，编译时覆盖 lede 源码内的原补丁
+    if [ -f "${GITHUB_WORKSPACE}/build/${build_target}/patches/953-net-patch-linux-kernel-to-support-shortcut-fe.patch" ];then
+        cp -f ${GITHUB_WORKSPACE}/build/${build_target}/patches/953-net-patch-linux-kernel-to-support-shortcut-fe.patch \
+              target/linux/generic/hack-6.18/953-net-patch-linux-kernel-to-support-shortcut-fe.patch
+        echo "==> 已用修复版覆盖 953 shortcut-fe 补丁（适配内核 $(grep -Po '^KERNEL_PATCHVER=\K\S+' target/linux/rockchip/Makefile)）"
     fi
 fi
 
-# 拉取argon主题套件
 merge_package "-b 18.06 https://github.com/jerrykuku/luci-theme-argon"
 merge_package "https://github.com/jerrykuku/luci-app-argon-config"
+#svn co https://github.com/immortalwrt/luci/trunk/themes/luci-theme-argon ./package/lean/luci-theme-argon
 
-# R2S：拉取 luci‑app‑oled
-# 注意：kmod‑i2c‑core=y 内核I2C驱动内置固件；i2c‑tools / libi2c =m输出apk/ipk，固件不预装
-# 脚本不自动启用oled，用户安装完软件包后手动开启服务
 if [ "$build_target" = r2s ];then
+    # Add luci-app-oled (R2S Only)
     merge_package https://github.com/NateLol/luci-app-oled
-    # 修复翻译 zh_Hans → zh‑cn
-    if [ -d package/custom/luci-app-oled/po/zh_Hans ];then
-        mv package/custom/luci-app-oled/po/zh_Hans package/custom/luci-app-oled/po/zh-cn
-    fi
+    # enable r2s oled plugin by default
+    sed -ri "s/enable\s+'0'/enable '1'/" package/custom/luci-app-oled/root/etc/config/oled
+    # https://github.com/NateLol/luci-app-oled/issues/21 解决中文问题
+    [ -d package/custom/luci-app-oled/po/zh_Hans ] && mv package/custom/luci-app-oled/po/zh_Hans package/custom/luci-app-oled/po/zh-cn
 fi
 
-# R2S PWM风扇温控部署
-if [ "$build_target" = r2s ];then
-    FAN_BASE="target/linux/rockchip/armv8/base-files/usr/bin"
-    mkdir -p "${FAN_BASE}"
-    wget -q -O fancontrol.patch https://github.com/friendlyarm/friendlywrt/commit/cebdc1f94dcd6363da3a5d7e1e69fd741b8b718e.patch
-    if [ -f fancontrol.patch ];then
-        git apply fancontrol.patch 2>/dev/null
-        sed -i 's/pwmchip1/pwmchip0/' "${FAN_BASE}/fa-fancontrol.sh" "${FAN_BASE}/fa-fancontrol-direct.sh"
-        rm -f fancontrol.patch
-        echo "[INFO] 风扇温控脚本部署完成"
-    else
-        echo "[WARN] 下载风扇补丁失败，跳过风扇温控功能"
-    fi
-fi
+# ==============================
+# 风扇温控补丁说明：这个补丁是 friendlywrt 的，immortalwrt 文件结构不一样，直接跑会炸
+# 后续想玩温控再调试
+# ==============================
+#enable fan control
+wget https://github.com/friendlyarm/friendlywrt/commit/cebdc1f94dcd6363da3a5d7e1e69fd741b8b718e.patch
+git apply cebdc1f94dcd6363da3a5d7e1e69fd741b8b718e.patch
+rm cebdc1f94dcd6363da3a5d7e1e69fd741b8b718e.patch
+sed -i 's/pwmchip1/pwmchip0/' target/linux/rockchip/armv8/base-files/usr/bin/fa-fancontrol.sh target/linux/rockchip/armv8/base-files/usr/bin/fa-fancontrol-direct.sh
 
-# unblockneteasemusic：适配proc‑ng‑ps，替换ps调用参数
+# unblockneteasemusic 的 状态判断是 exec 调用 ps 命令，它没适配 proc-ng-ps 命令会影响
 lua_file=$(find -type f -name unblockneteasemusic.lua)
-[ -n "$lua_file" ] && sed -ri '/sys.call.+"ps /s#ps -w#ps aux#' "$lua_file"
+[ -n "$lua_file" ] && sed -ri '/sys.call.+"ps /s#ps -w#ps aux#' $lua_file
 
-# files目录：预置文件合并进rootfs
+# ----------- 提前打包一些文件，防止初次使用去下载
+# files下会合并到最终的 rootfs 里
 mkdir -p files/
+# 初次开机设置脚本
 mkdir -p files/etc/uci-defaults/
+cp ${GITHUB_WORKSPACE}/scripts/uci-defaults/* files/etc/uci-defaults/
+chmod a+x files/etc/uci-defaults/*
 
-# 复制uci‑defaults开机预置脚本
-if [ -n "${GITHUB_WORKSPACE}" ] && [ -d "${GITHUB_WORKSPACE}/scripts/uci-defaults" ];then
-    cp ${GITHUB_WORKSPACE}/scripts/uci-defaults/* files/etc/uci-defaults/
-    chmod a+x files/etc/uci-defaults/*
-fi
-
-# 预处理资源脚本，每个脚本做存在判断，缺失不中断编译
-if [ -n "${GITHUB_WORKSPACE}" ] && [ -d "${GITHUB_WORKSPACE}/scripts/files" ];then
-    [ -f "${GITHUB_WORKSPACE}/scripts/files/adh.sh" ] && source "${GITHUB_WORKSPACE}/scripts/files/adh.sh"
-    [ -f "${GITHUB_WORKSPACE}/scripts/files/openclash.sh" ] && source "${GITHUB_WORKSPACE}/scripts/files/openclash.sh"
-    [ -f "${GITHUB_WORKSPACE}/scripts/files/pwmfan.sh" ] && source "${GITHUB_WORKSPACE}/scripts/files/pwmfan.sh"
-fi
-
-# 升级脚本放入固件
-if [ -n "${GITHUB_WORKSPACE}" ] && [ -f "${GITHUB_WORKSPACE}/build/scripts/update.sh" ];then
-    \cp -a ${GITHUB_WORKSPACE}/build/scripts/update.sh files/
-fi
-
-echo "==== diy‑part2.sh 执行结束，请运行 make defconfig && ./scripts/diffconfig.sh 校验配置 ===="
+# 预处理下载相关文件，保证打包固件不用单独下载
+source ${GITHUB_WORKSPACE}/scripts/files/adh.sh
+source ${GITHUB_WORKSPACE}/scripts/files/openclash.sh
+source ${GITHUB_WORKSPACE}/scripts/files/pwmfan.sh
+for sh_file in $(ls ${GITHUB_WORKSPACE}/scripts/files/*.sh);do
+    source $sh_file
+done
+chmod a+x ${GITHUB_WORKSPACE}/build/scripts/*.sh
+# 放入升级脚本
+\cp -a ${GITHUB_WORKSPACE}/build/scripts/update.sh files/
+# ---------- end -----------
