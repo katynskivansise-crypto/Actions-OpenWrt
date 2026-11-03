@@ -1,3 +1,4 @@
+#
 # Copyright (c) 2019-2026 P3TERX <https://p3terx.com>
 #
 # This is free software, licensed under the MIT License.
@@ -5,7 +6,9 @@
 #
 # https://github.com/P3TERX/Actions-OpenWrt
 # Description: Build OpenWrt using GitHub Actions
+#
 name: Build OpenWrt
+
 on:
   repository_dispatch:
   workflow_dispatch:
@@ -38,6 +41,7 @@ on:
         description: 'used for repository_dispatch run'
         required: false
         default: ''
+
 env:
   FEEDS_CONF: feeds.conf.default
   DIY_P1_SH: diy-part1.sh
@@ -53,6 +57,7 @@ env:
   # ALIUNCS_PASS: ${{ secrets.DOCKER_PASS }}
   NOT_PUSH: ${{ secrets.NOT_PUSH }}
   envOverride: ${{ github.event.inputs.envOverride }}
+
 jobs:
   set_matrix:
     runs-on: ubuntu-24.04
@@ -61,9 +66,11 @@ jobs:
       real_target: ${{ steps.set_matrix.outputs.target }}
       inputs_json: ${{ steps.set_matrix.outputs.input }}
     name: "set matrix for: ${{ github.event.inputs.target }}"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: print info
         id: set_matrix
         run: |
@@ -72,15 +79,18 @@ jobs:
           [ -z "$real_branch" ] && real_branch=${GITHUB_REF##*/}
           echo "real_branch: $real_branch"
           git fetch && git reset --hard origin/${real_branch} && git clean -df
+
           echo '${{ toJson(github) }}' > /tmp/github
           cat /tmp/github
           pwd
           ls -al
           set -- set
           source build/common/scripts/start_set_matrix.sh
+
       - name: print set_matrix
         run: |
           echo '${{ steps.set_matrix.outputs.matrix }}'
+
   build:
     needs: set_matrix
     runs-on: ${{ fromJson(needs.set_matrix.outputs.inputs_json).os }}
@@ -94,9 +104,11 @@ jobs:
         target:
           - ${{ fromJson(needs.set_matrix.outputs.inputs_json).target }}
         repo: ${{ fromJson(needs.set_matrix.outputs.build_repo) }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: print machine info and matrix info
         run: |
           real_branch=${GITHUB_REF##*/}
@@ -106,9 +118,11 @@ jobs:
           [ -n "${{ github.event.client_payload.branch }}" ] && real_branch=${{ github.event.client_payload.branch }}
           git fetch && git reset --hard origin/${real_branch} && git clean -df
           echo "real_branch=${real_branch}" >> $GITHUB_ENV
+
           echo '${{ needs.set_matrix.outputs.inputs_json }}' > /tmp/github.json
           cat /tmp/github.json
           source build/common/scripts/start_set_matrix.sh
+
           uname -a
           cat /etc/os-release
           df -h
@@ -117,7 +131,9 @@ jobs:
           echo 'target: ${{ matrix.target }} ${{ toJSON(matrix.repo) }}'
           cp -a build/${{ matrix.target }}/* ${GITHUB_WORKSPACE}/
           cp -a ${GITHUB_WORKSPACE}/build/common ${GITHUB_WORKSPACE}/
+
           echo "build_target=${{ matrix.target }}" >> $GITHUB_ENV
+
           if [ "${os}" != 'self-hosted' ];then
             if [ "${real_branch}" = 'test' ] && [ "$(LANG=en_US.UTF-8 lscpu | awk '$1=="CPU"&&$2=="MHz:"{print int($3)}')" -le 2500 ];then
               hour_num=$(TZ=Asia/Shanghai date '+%H')
@@ -128,6 +144,7 @@ jobs:
               fi
             fi
           fi
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         env:
@@ -136,6 +153,7 @@ jobs:
         with:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.DOCKER_HUB_PASS }}
+
       - name: Initialization environment
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -145,6 +163,7 @@ jobs:
           sudo mkdir -p /workdir
           sudo chown $USER:$GROUPS /workdir
           git config --global user.email "action@github.com" && git config --global user.name "GitHub Action"
+
           if [ -f "init_runner.sh" ];then
             bash init_runner.sh
           else
@@ -162,6 +181,7 @@ jobs:
             sudo -E apt-get -qq clean
             sudo ln -sf /usr/bin/python3 /usr/bin/python
             sudo timedatectl set-timezone "$TZ"
+
             if [ -n "${{ secrets.gh_token }}" ];then
               wget -q $(curl -s https://api.github.com/repos/cli/cli/releases/latest | jq -r '.assets[] | select(.name|match("linux_amd64.tar.gz$")) | .browser_download_url')
               tar zxf gh_*_linux_amd64.tar.gz
@@ -172,6 +192,7 @@ jobs:
               echo ${{ secrets.gh_token }} | gh auth login --with-token || true
             fi
           fi
+
           {
             git clone https://github.com/openwrt-dev/po2lmo.git
             pushd po2lmo
@@ -179,6 +200,7 @@ jobs:
             popd
             rm -rf po2lmo
           }&
+
           docker rmi `docker images -q` &
           echo "JOB_NAME=${{matrix.target}}:${{matrix.repo.name}}-${{matrix.repo.branch}}" >> $GITHUB_ENV
           if [ -f common/env.sh ];then
@@ -188,6 +210,7 @@ jobs:
           fi
           echo "cache_name=$( echo ${{ matrix.repo.name }}-${{ matrix.repo.branch }}-${{ matrix.target }} | awk -F/ '{print $NF}' )" >> $GITHUB_ENV
           echo "ACTION_NUM=${GITHUB_RUN_NUMBER}" >> $GITHUB_ENV
+
       - name: Clone source code
         working-directory: /workdir
         run: |
@@ -206,6 +229,7 @@ jobs:
           fi
           LOOP_DEVICE=$(losetup -f) && echo "LOOP_DEVICE=$LOOP_DEVICE" >> $GITHUB_ENV
           sudo losetup -P --direct-io $LOOP_DEVICE ${GITHUB_WORKSPACE}/${cache_name}.img
+
           mkdir openwrt && sudo mount -o nossd,compress=zstd $LOOP_DEVICE openwrt
           if [ -f "${GITHUB_WORKSPACE}/clone.sh" ];then
             bash ${GITHUB_WORKSPACE}/clone.sh
@@ -227,8 +251,10 @@ jobs:
           cd ${BaseDir}
           readlink -f $GITHUB_WORKSPACE/openwrt
           ls -la . $GITHUB_WORKSPACE/ $GITHUB_WORKSPACE/common $GITHUB_WORKSPACE/config $GITHUB_WORKSPACE/openwrt/
+
           echo "repo_name=${{ matrix.repo.name }}" >> $GITHUB_ENV
           echo "repo_branch=${{ matrix.repo.branch }}" >> $GITHUB_ENV
+
       - name: Load custom feeds
         run: |
           [ -e $FEEDS_CONF ] && mv $FEEDS_CONF openwrt/feeds.conf.default
@@ -238,6 +264,7 @@ jobs:
             echo "Start Running: $DIY_P1_SH"
             $GITHUB_WORKSPACE/$DIY_P1_SH
           fi
+
       - name: Update feeds
         if: env.UdateFeeds == 'true'
         run: |
@@ -245,18 +272,20 @@ jobs:
           set -x
           awk '$1!~"#"{print $2}' feeds.conf.default | while read dir;do
               if [ -d feeds/${dir}/.git ];then
-                pushd feeds/${dir}
-                [ -n "$(git diff --name-only)" ] && git reset --hard HEAD
-                git clean -df
-                git restore .
-                git pull --rebase
-                popd
+                  pushd feeds/${dir}
+                  [ -n "$(git diff --name-only)" ] && git reset --hard HEAD
+                  git clean -df
+                  git restore .
+                  git pull --rebase
+                  popd
               fi
           done
           ./scripts/feeds update -a
+
       - name: Install feeds
         if: env.InstallFeeds == 'true'
         run: cd openwrt && ./scripts/feeds install -a
+
       - name: Load custom configuration
         id: load
         run: |
@@ -265,6 +294,7 @@ jobs:
           if [ -n "${{ secrets.gh_token }}" ] && [ "$CACHE" = false ] && [ "$USED_CONFIG_IB" = true ];then
             echo "status=true" >> $GITHUB_OUTPUT
           fi
+
       - name: Upload buildInfo
         uses: actions/upload-artifact@v4
         if: '!cancelled()'
@@ -273,22 +303,26 @@ jobs:
           path: |
             ${{ env.BaseDir }}/.config
             ${{ env.BaseDir }}/*.buildinfo
+
       - name: gh-rerun-condition
         continue-on-error: true
         if: steps.load.outputs.status == 'true'
         run: |
           echo $JOB_NAME
           timeout 5 gh -R ${GITHUB_REPOSITORY} run watch ${{ github.run_id }} || true
+
       - name: cat .config part1
         run: |
           cd openwrt
           cat .config
+
       - name: SSH connection to Actions
         uses: P3TERX/ssh2actions@v1.0.0
         if: (failure() && github.event.inputs.ssh == 'true' && github.event.inputs.ssh  != 'false') || contains(github.event.action, 'ssh')
         env:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+
       - name: Download package
         id: package
         run: |
@@ -307,17 +341,20 @@ jobs:
             fi
           fi
           ls -al ${BaseDir}
+
       - name: cat .config before compile
         run: |
           cd openwrt
           grep -P '^CONFIG_PACKAGE_luci-app-[^A-Z]*=y' .config
           echo '-----👇------'
           cat .config
+
       - name: Compile the firmware
         id: compile
         run: |
           ulimit -SHn 65000
           cd openwrt
+
           release_file=$( find package/base-files -type f -name openwrt_release )
           echo "release_file path: $release_file"
           echo "MATRIX_TARGET='${{matrix.target}}'" >> $release_file
@@ -327,10 +364,12 @@ jobs:
             echo "MATRIX_TARGET_LIST='${firmware_wildcard}'" >> $release_file
             echo "multi_target=${firmware_wildcard}" >> imageBuilderEnv.buildinfo
           fi
+
           echo -e "$(nproc) thread compile"
           if [ -n "${{ secrets.gh_token }}" ] && gh auth status >/dev/null 2>&1 && [ "${AutoBuildTimeOut}" == true ] ;then
             createdAt=$(gh -R ${GITHUB_REPOSITORY}  run list --json databaseId,createdAt --jq ".[]|select(.databaseId==${{ github.run_id }})|.createdAt")
             echo "createdAt=$createdAt" >> $GITHUB_ENV
+
             set -x
             mkdir -p env/
             touch env/toolchain.hash
@@ -342,10 +381,12 @@ jobs:
               time make toolchain/compile -j$[`nproc`+1] || make toolchain/compile -j1 V=s
               echo $CURRENT_HASH > env/toolchain.hash
             fi
+
             make buildinfo
             make diffconfig buildversion feedsversion
             time make target/compile -j$[`nproc`+1] IGNORE_ERRORS="m n" BUILD_LOG=1 || \
             yes n | make target/compile -j1 V=s IGNORE_ERRORS=1
+
             usedSec=$(( `date +%s` - `date -d "$createdAt" +%s`  ))
             reserved_time=$( bash ${GITHUB_WORKSPACE}/common/cache.sh get_reserved_time)
             timeoutSec=$(( 6*60*60 - ${reserved_time}*60 - $usedSec  ))
@@ -370,7 +411,7 @@ jobs:
                 make checksum
               fi
             else
-              time make package/index || true
+                time make package/index || true
             fi
             set +x
           else
@@ -385,7 +426,9 @@ jobs:
           du -h --max-depth=1 ./ --exclude=build_dir --exclude=bin
           du -h --max-depth=1 ./build_dir
           du -h --max-depth=1 ./bin
+
           echo "DEVICE_NAME=${{ matrix.target }}" >> $GITHUB_ENV
+
       - name: retry with V=s in failed packages
         if: (!cancelled())
         run: |
@@ -396,11 +439,12 @@ jobs:
               grep -Po 'ERROR:\s+\K\S+' /tmp/build.log || true
               echo '-------------分割线-----------'
               for pkg in `grep -Po 'ERROR:\s+\K\S+' /tmp/build.log`;do
-                echo "开始单独尝试 make $pkg/compile V=s 编译查看详细信息"
-                make $pkg/compile V=s || true
+                  echo "开始单独尝试 make $pkg/compile V=s 编译查看详细信息"
+                  make $pkg/compile V=s || true
               done
             fi
           fi
+
       - name: Check space usage
         if: (!cancelled())
         run: |
@@ -411,6 +455,7 @@ jobs:
           if [ -f diy-after-compile.sh ];then
             bash diy-after-compile.sh
           fi
+
       - name: Check cache list
         if: (!cancelled())
         run: |
@@ -420,17 +465,19 @@ jobs:
           fi
           ls -ahl build_dir/target-*/ staging_dir/target-* \
               staging_dir/packages || true
+
       - name: Upload bin directory
         uses: actions/upload-artifact@v4
         if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
         with:
           name: OpenWrt_bin_${{ env.DEVICE_NAME }}${{ env.FILE_DATE }}
           path: openwrt/bin
+
       - name: Organize files
         id: organize
         if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
         run: |
-          sha256_path=$(find ./bin/targets/ -type f -name sha256sums 2>/dev/null || true)
+          sha256_path=$(find openwrt/bin/targets/ -type f -name sha256sums )
           if [ -n "$sha256_path" ];then
             cd $(dirname $sha256_path)
             pwd
@@ -441,9 +488,10 @@ jobs:
               if ! grep -Pq '^\s*[^#]+?\},\{' ${GITHUB_WORKSPACE}/set_matrix.sh;then
                 echo "status=success" >> $GITHUB_OUTPUT
               fi
+
               if ls *-imagebuilder-* &>/dev/null;then
                 echo "uploadImageBuilder=true" >> $GITHUB_OUTPUT
-                if [ "${CACHE}" = true ] && [ "${USED_CONFIG_IB}" == true ];then
+                if [ "${CACHE}" = true ] && [ "$USED_CONFIG_IB" == true ];then
                   echo "imageBuilder=openwrt-imagebuilder-${{ env.DEVICE_NAME }}-${{ matrix.repo.name }}-${{ matrix.repo.branch }}" >> $GITHUB_OUTPUT
                 fi
               else
@@ -452,6 +500,7 @@ jobs:
               echo "build_target=${{ matrix.target }}" >> $GITHUB_OUTPUT
             fi
           fi
+
       - name: Do something after Compile
         if: steps.organize.outputs.status == 'success' && !cancelled()
         run: |
@@ -460,6 +509,7 @@ jobs:
             export real_branch
             bash $GITHUB_WORKSPACE/$DIY_AFTER
           fi
+
       - name: Upload firmware directory
         uses: actions/upload-artifact@v4
         if: steps.organize.outputs.status == 'success' && !cancelled()
@@ -468,12 +518,14 @@ jobs:
           path: |
             ${{ env.FIRMWARE }}
             !${{ env.FIRMWARE }}/openwrt-imagebuilder*
+
       - name: Upload imagebuilder tar.xz
         uses: actions/upload-artifact@v4
         if: steps.organize.outputs.uploadImageBuilder && !cancelled()
         with:
           name: openwrt-imagebuilder-${{ env.DEVICE_NAME }}-${{ matrix.repo.name }}-${{ matrix.repo.branch }}
           path: ${{ env.FIRMWARE }}/*-imagebuilder*
+
       - name: Upload firmware to cowtransfer
         id: cowtransfer
         if: steps.organize.outputs.status == 'success' && env.UPLOAD_COWTRANSFER == 'true' && !cancelled()
@@ -482,6 +534,7 @@ jobs:
           ./transfer cow --block 2621440 -s -p 64 --no-progress ${FIRMWARE} 2>&1 | tee cowtransfer.log
           echo "::warning file=cowtransfer.com::$(cat cowtransfer.log | grep https)"
           echo "url=$(cat cowtransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_OUTPUT
+
       - name: Upload firmware to WeTransfer
         id: wetransfer
         if: steps.organize.outputs.status == 'success' && env.UPLOAD_WETRANSFER == 'true' && !cancelled()
@@ -490,6 +543,7 @@ jobs:
           ./transfer wet -s -p 16 --no-progress ${FIRMWARE} 2>&1 | tee wetransfer.log
           echo "::warning file=wetransfer.com::$(cat wetransfer.log | grep https)"
           echo "url=$(cat wetransfer.log | grep https | cut -f3 -d" ")" >> $GITHUB_OUTPUT
+
       - name: Generate release tag
         id: tag
         if: env.UPLOAD_RELEASE == 'true' && !cancelled()
@@ -499,6 +553,7 @@ jobs:
           [ $UPLOAD_COWTRANSFER = true ] && echo "🔗 [Cowtransfer](${{ steps.cowtransfer.outputs.url }})" >> release.txt
           [ $UPLOAD_WETRANSFER = true ] && echo "🔗 [WeTransfer](${{ steps.wetransfer.outputs.url }})" >> release.txt
           echo "status=success" >> $GITHUB_OUTPUT
+
       - name: Upload firmware to release
         uses: softprops/action-gh-release@v1
         if: steps.tag.outputs.status == 'success' && !cancelled()
@@ -508,13 +563,14 @@ jobs:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           body_path: release.txt
           files: ${{ env.FIRMWARE }}/*
+
       - name: Clean space for upload cache
         id: up_cache_before
         if: "!cancelled() && env.ClearPkg == 'true'"
         continue-on-error: true
         run: |
           sync
-          sha256_path=$(find openwrt/bin/targets/ -type f -name sha256sums 2>/dev/null || true)
+          sha256_path=$(find openwrt/bin/targets/ -type f -name sha256sums )
           if [ -n "$sha256_path" ];then
             pushd $(dirname $sha256_path)
             if ls *-imagebuilder-* &>/dev/null;then
@@ -522,14 +578,15 @@ jobs:
             fi
             popd
           fi
+
           nohup sh -c '
           echo "Listing 100 largest packages"
-          sudo dpkg-query -Wf '\''${Installed-Size}\t${Package}\n'\'' | sort -n | tail -n 100
+          sudo dpkg-query -Wf '${Installed-Size}\t${Package}\n' | sort -n | tail -n 100
           df -h
           echo "Removing large packages"
-          sudo apt-get remove -y '\''^ghc-8.*'\'' || true
-          sudo apt-get remove -y '\''^dotnet-.*'\'' || true
-          sudo apt-get remove -y '\''^llvm-.*'\'' || true
+          sudo apt-get remove -y '^ghc-8.*' || true
+          sudo apt-get remove -y '^dotnet-.*' || true
+          sudo apt-get remove -y '^llvm-.*' || true
           sudo apt-get remove -y 'php.*' || true
           sudo apt-get remove -y azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel || true
           sudo apt-get autoremove -y || true
@@ -537,6 +594,7 @@ jobs:
           df -h
           df -i
           ' &
+
       - name: Upload cache
         id: up_cache
         if: '!cancelled()'
@@ -548,6 +606,7 @@ jobs:
           if [ "${UseCache}" == true -a -n "${{ secrets.gh_token }}" ];then
             set -x
             rm -rf openwrt/{bin,tmp,files}
+
             if [ -z "$no_imageBuilder" ];then
               pushd openwrt
               df -h
@@ -555,7 +614,9 @@ jobs:
               df -h
               popd
             fi
+
             bash ${GITHUB_WORKSPACE}/common/cache.sh clean
+
             sleep 1
             sudo mount -o remount,compress=no,nodatacow,nodatasum  /workdir/openwrt
             pv /dev/zero > openwrt/zerospace || true
@@ -572,30 +633,34 @@ jobs:
             sleep 2
             sudo losetup -l -O NAME -n | grep -Eqw $LOOP_DEVICE && sudo losetup -d $LOOP_DEVICE
             sync
+
             export Avail_G_NUM=$(df -BG | awk '$6=="/"{print +$4}')
             bash -x ${GITHUB_WORKSPACE}/common/cache.sh upload
+
             timeout 5 gh -R ${GITHUB_REPOSITORY} run watch ${{ github.run_id }} > /tmp/watch_txt || true
             first_rerun_job=$(awk '$0~/\(ID [0-9]+/{$1="";flag=$0};flag && $0~"gh-rerun-condition"{if($1=="-"){flag="";next;}else{print flag;exit;}}' /tmp/watch_txt)
             if [ "${CACHE}" = false -a "${USED_CONFIG_IB}" = true ] && gh auth status >/dev/null 2>&1 && echo "$first_rerun_job" | grep -qw "$JOB_NAME";then
               if [ "${{ github.event_name }}" == workflow_dispatch ];then
                 echo '${{ toJson(github.event.inputs) }}' > /tmp/test
                 workFlow=$( echo  ${{ github.event.workflow }} | sed -r 's#.github/workflows/##')
-                gh workflow run $workFlow -r ${GITHUB_REF##*/} --json
+                cat /tmp/test | gh workflow run $workFlow -r ${GITHUB_REF##*/} --json
                 rm -f /tmp/test
               else
                 curl -X POST https://api.github.com/repos/${{ github.repository }}/dispatches \
                   -H "Accept: application/vnd.github.everest-preview+json" \
-                  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" -d \
+                  -H "Authorization: token ${{ secrets.gh_token }}" -d \
                     '{
                        "event_type":"${{ github.event.action }}",
                        "client_payload": ${{ toJSON(github.event.client_payload) }}
                      }'
               fi
             fi
+
             if [ "${os}" = 'self-hosted' ];then
               gh auth logout || true
             fi
           fi
+
       # ====================== 新增：清理Packages同缓存包旧版本，只保留最新1个 ======================
       - name: Clean old cache package versions (keep latest 1)
         if: success() && env.cache_name != '' && env.UseCache == 'true'
@@ -607,12 +672,14 @@ jobs:
           min-versions-to-keep: 1
           token: ${{ secrets.PAT_PACKAGE_CLEAN }}
         continue-on-error: true
+
       - name: Delete workflow runs
         uses: GitRML/delete-workflow-runs@main
         continue-on-error: true
         with:
           retain_days: 5
           keep_minimum_runs: 7
+
       - name: Remove old Releases
         uses: dev-drprasad/delete-older-releases@v0.1.0
         if: env.UPLOAD_RELEASE == 'true' && !cancelled()
@@ -621,6 +688,7 @@ jobs:
           delete_tags: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   build_slim:
     needs: [set_matrix, build]
     if: needs.build.outputs.imageBuilder
@@ -636,6 +704,7 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
       - name: print info
         run: |
           df -h
@@ -645,15 +714,19 @@ jobs:
           echo 'target: ${{matrix.target}}' 'repo: ${{ toJSON(matrix.repo) }}'
           pwd
           ls -l .
+
           echo '${{ needs.set_matrix.outputs.inputs_json }}' > /tmp/github.json
           cat /tmp/github.json
           source build/common/scripts/start_set_matrix.sh
+
           real_branch=${GITHUB_REF##*/}
           if [ -n "${branch}" ];then
             real_branch=${branch}
           fi
+
           echo "real_branch=${real_branch}" >> $GITHUB_ENV
           git fetch && git reset --hard origin/${real_branch} && git clean -df
+
           echo "repo_name=${{ matrix.repo.name }}" >> $GITHUB_ENV
           echo "repo_branch=${{ matrix.repo.branch }}" >> $GITHUB_ENV
           echo "input_os=${os}" >> $GITHUB_ENV
@@ -662,6 +735,7 @@ jobs:
           else
             echo "suffix=-full" >> $GITHUB_ENV
           fi
+
       - name: Initialization environment
         id: init
         env:
@@ -675,12 +749,14 @@ jobs:
           find gh_* -type f -name gh -exec mv {} /usr/local/bin/ \;
           rm -rf gh_*linux*
           sudo chmod a+x /usr/local/bin/gh
+
           sudo -E apt-get -qq update
           sudo -E apt-get -qq install qemu-utils git gh gawk unzip patch autoconf automake upx wget curl rsync jq rename
           sudo -E apt-get -qq autoremove --purge
           sudo -E apt-get -qq clean
           sudo timedatectl set-timezone "$TZ"
           docker info
+
           if [ -n "${{ secrets.gh_token }}" ];then
             gh --version
             if echo ${{ secrets.gh_token }} | gh auth login --with-token; then
@@ -689,11 +765,13 @@ jobs:
               echo "WARN: gh_token 无效或缺少 read:org scope，跳过 gh 功能（不影响编译）"
             fi
           fi
+
           echo "DEVICE_NAME=${{ needs.build.outputs.build_target }}" >> $GITHUB_ENV
           cp -a build/${{ needs.build.outputs.build_target }}/* ${GITHUB_WORKSPACE}/
           cp -a build/common ${GITHUB_WORKSPACE}/
           bash common/env.sh
           ls -al .
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         env:
@@ -702,6 +780,7 @@ jobs:
         with:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.DOCKER_HUB_PASS }}
+
       - name: Login to registry.aliyuncs.com
         uses: aliyun/acr-login@v1
         env:
@@ -711,18 +790,21 @@ jobs:
         with:
           login-server: https://registry.aliyuncs.com
           username: "${{ github.repository_owner }}@qq.com"
-          password: "${{ secrets.DOCKER_HUB_PASS }}"
+          password: "${{ secrets.ALIUNCS_PASS }}"
+
       - name: Download imagebuilder (Artifact)
         uses: actions/download-artifact@v4
         with:
           name: openwrt-imagebuilder-${{ needs.build.outputs.build_target }}-${{ matrix.repo.name }}-${{ matrix.repo.branch }}
           path: .
+
       - name: Compile the firmware
         id: compile
         run: |
           bash common/imageBuilder-run.sh compile
           echo "status=success" >> $GITHUB_OUTPUT
           echo "FILE_DATE=$(date +"%Y%m%d%H%M")" >> $GITHUB_ENV
+
       - name: Organize files
         id: organize
         if: env.UPLOAD_FIRMWARE == 'true' && !cancelled()
@@ -732,6 +814,7 @@ jobs:
           ls -lh
           echo "FIRMWARE=$(readlink -f .)" >> $GITHUB_ENV
           echo "status=success" >> $GITHUB_OUTPUT
+
       - name: Do something after Compile
         if: steps.organize.outputs.status == 'success' && !cancelled()
         run: |
@@ -740,6 +823,7 @@ jobs:
           if [ -f "$GITHUB_WORKSPACE/$DIY_AFTER" ];then
             bash -x $GITHUB_WORKSPACE/$DIY_AFTER ${{ matrix.repo.name }}-${{ matrix.repo.branch }} ${{ env.suffix }}
           fi
+
       - name: Upload firmware directory
         uses: actions/upload-artifact@v4
         if: steps.organize.outputs.status == 'success' && !cancelled()
@@ -747,6 +831,7 @@ jobs:
           name: OpenWrt_firmware-${{ env.DEVICE_NAME }}_${{ env.FILE_DATE }}${{ env.suffix }}-${{ matrix.repo.name }}-${{ matrix.repo.branch }}
           path: |
             ${{ env.FIRMWARE }}
+
       - name: Upload firmware to release
         if: steps.init.outputs.gh == 'success' && !cancelled()
         run: |
