@@ -65,8 +65,7 @@ if [ "$repo_name" = 'lede' ] || [ "$repo_name" = 'immortalwrt' ];then
 fi
 
 # 拉取argon主题
-merge_package "-b 18.06 https://github.com/jerrykuku/luci-theme-argon"
-merge_package "https://github.com/jerrykuku/luci-app-argon-config"
+merge_package "https://github.com/jerrykuku/luci-theme-argon"
 
 # R2S Only 拉取luci‑app‑oled
 # ⚠️i2c内核模块配置为=m仅编译apk/ipk，固件不内置，不自动开启oled服务
