@@ -18,24 +18,24 @@ if [ "$build_target" = r2s ];then
     fi
 fi
 
-### 自定义包合并函数【修复git clone参数：-b指定分支】
-# 参数1：仓库地址；参数2：额外需要删除的包名(可为空)；参数3：git分支(默认main)
-# set‑e捕获克隆异常，执行结束恢复set +e
+### 自定义包合并函数【修复：URL截取仓库名语法错误、git clone分支参数】
+# 参数1：完整git仓库URL；参数2：额外需要删除的包名(可为空)；参数3：git分支(默认main)
 merge_package(){
     set -e
     local pn="$1"
     local del_name="$2"
     local branch="${3:-main}"
-    pn=${pn##/}
-    find package/ -follow -name "$pn" -not -path "package/custom/*" | xargs -rt rm -rf
+    # 截取URL最后一段作为本地目录名，##*/ 匹配最后一个/及前面全部字符
+    pn=${pn##*/}
+    find package/ -follow -name "${pn}" -not -path "package/custom/*" | xargs -rt rm -rf
     if [ ! -z "$del_name" ]; then
-        find package/ -follow -name "$del_name" -not -path "package/custom/*" | xargs -rt rm -rf
+        find package/ -follow -name "${del_name}" -not -path "package/custom/*" | xargs -rt rm -rf
     fi
 
     if [[ $1 == *'/trunk/'* || $1 == *'/branches/'* ]]; then
         svn export "$1"
     else
-        git clone --depth=1 -b "${branch}" --single-branch "${pn}"
+        git clone --depth=1 -b "${branch}" --single-branch "$1"
         rm -rf "${pn}/.git"
     fi
     mv "${pn}" package/custom/
