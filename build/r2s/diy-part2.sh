@@ -83,8 +83,7 @@ if [ "$repo_name" = 'lede' ] || [ "$repo_name" = 'immortalwrt' ];then
     fi
 fi
 
-merge_package "-b 18.06 https://github.com/jerrykuku/luci-theme-argon"
-merge_package "https://github.com/jerrykuku/luci-app-argon-config"
+merge_package "https://github.com/jerrykuku/luci-theme-argon"
 #svn co https://github.com/immortalwrt/luci/trunk/themes/luci-theme-argon ./package/lean/luci-theme-argon
 
 if [ "$build_target" = r2s ];then
